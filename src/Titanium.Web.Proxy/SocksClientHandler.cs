@@ -17,7 +17,7 @@ namespace Titanium.Web.Proxy
         /// <param name="endPoint">The transparent endpoint.</param>
         /// <param name="clientConnection">The client connection.</param>
         /// <returns></returns>
-        private async Task handleClient(SocksProxyEndPoint endPoint, TcpClientConnection clientConnection)
+        public async Task handleClient(SocksProxyEndPoint endPoint, TcpClientConnection clientConnection)
         {
             var cancellationTokenSource = new CancellationTokenSource();
             var cancellationToken = cancellationTokenSource.Token;

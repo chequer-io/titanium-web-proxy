@@ -13,24 +13,24 @@ namespace Titanium.Web.Proxy.Network.Tcp
     /// <summary>
     ///     An object that holds TcpConnection to a particular server and port
     /// </summary>
-    internal class TcpClientConnection : IDisposable
+    public class TcpClientConnection : IDisposable
     {
         public object ClientUserData { get; set; }
 
-        internal TcpClientConnection(ProxyServer proxyServer, Socket tcpClientSocket)
+        public TcpClientConnection(ProxyServer proxyServer, Socket tcpClientSocket)
         {
             this.tcpClientSocket = tcpClientSocket;
             this.proxyServer = proxyServer;
             this.proxyServer.UpdateClientConnectionCount(true);
         }
 
-        private ProxyServer proxyServer { get; }
+        protected ProxyServer proxyServer { get; }
 
         public Guid Id { get; } = Guid.NewGuid();
 
-        public EndPoint LocalEndPoint => tcpClientSocket.LocalEndPoint;
+        public virtual EndPoint LocalEndPoint => tcpClientSocket.LocalEndPoint;
 
-        public EndPoint RemoteEndPoint => tcpClientSocket.RemoteEndPoint;
+        public virtual EndPoint RemoteEndPoint => tcpClientSocket.RemoteEndPoint;
 
         internal SslProtocols SslProtocol { get; set; }
 
@@ -40,7 +40,7 @@ namespace Titanium.Web.Proxy.Network.Tcp
 
         private int? processId;
 
-        public Stream GetStream()
+        public virtual Stream GetStream()
         {
             return new NetworkStream(tcpClientSocket, true);
         }
@@ -92,7 +92,7 @@ namespace Titanium.Web.Proxy.Network.Tcp
 
                 try
                 {
-                    tcpClientSocket.Close();
+                    Shutdown();
                 }
                 catch
                 {
@@ -101,6 +101,11 @@ namespace Titanium.Web.Proxy.Network.Tcp
             });
 
             disposed = true;
+        }
+
+        protected virtual void Shutdown()
+        {
+            tcpClientSocket.Close();
         }
 
         public void Dispose()
