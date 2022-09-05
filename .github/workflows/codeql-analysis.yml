@@ -58,7 +58,7 @@ jobs:
 
     - name: Build
       working-directory: src/Titanium.Web.Proxy
-      run: dotnet build Titanium.Web.Proxy.NetCore.csproj -c Release
+      run: dotnet build Titanium.Web.Proxy.csproj -c Release
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
