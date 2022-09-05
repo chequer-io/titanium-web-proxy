@@ -144,6 +144,15 @@ namespace Titanium.Web.Proxy.Helpers.WinHttp
             proxy = new WebProxy(new Uri("http://localhost"), BypassOnLocal, pi.BypassList);
         }
 
+        internal void UsePacFile(Uri upstreamProxyConfigurationScript)
+        {
+            AutomaticallyDetectSettings = true;
+            AutomaticConfigurationScript = upstreamProxyConfigurationScript;
+            BypassLoopback = true;
+            BypassOnLocal = false;
+            proxy = new WebProxy(new Uri("http://localhost"), BypassOnLocal);
+        }
+
         private ProxyInfo getProxyInfo()
         {
             var proxyConfig = new NativeMethods.WinHttp.WINHTTP_CURRENT_USER_IE_PROXY_CONFIG();
@@ -340,14 +349,12 @@ namespace Titanium.Web.Proxy.Helpers.WinHttp
 
         private bool disposed = false;
 
-        void dispose(bool disposing)
+        public void Dispose()
         {
             if (disposed)
             {
                 return;
             }
-
-            disposed = true;
 
             if (session == null || session.IsInvalid)
             {
@@ -355,17 +362,8 @@ namespace Titanium.Web.Proxy.Helpers.WinHttp
             }
 
             session.Close();
-        }
 
-        public void Dispose()
-        {
-            dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~WinHttpWebProxyFinder()
-        {
-            dispose(false);
+            disposed = true;
         }
     }
 }

@@ -11,6 +11,7 @@ using Titanium.Web.Proxy.EventArguments;
 using Titanium.Web.Proxy.Extensions;
 using Titanium.Web.Proxy.Helpers;
 using Titanium.Web.Proxy.Helpers.WinHttp;
+using Titanium.Web.Proxy.Http;
 using Titanium.Web.Proxy.Models;
 using Titanium.Web.Proxy.Network;
 using Titanium.Web.Proxy.Network.Tcp;
@@ -33,12 +34,6 @@ namespace Titanium.Web.Proxy
 
         internal static ByteString UriSchemeHttp8 = (ByteString)UriSchemeHttp;
         internal static ByteString UriSchemeHttps8 = (ByteString)UriSchemeHttps;
-
-
-        /// <summary>
-        ///     A default exception log func.
-        /// </summary>
-        private readonly ExceptionHandler defaultExceptionFunc = e => { };
 
         /// <summary>
         ///     Backing field for exposed public property.
@@ -137,6 +132,11 @@ namespace Titanium.Web.Proxy
         public bool ForwardToUpstreamGateway { get; set; }
 
         /// <summary>
+        /// If set, the upstream proxy will be detected by a script that will be loaded from the provided Uri
+        /// </summary>
+        public Uri UpstreamProxyConfigurationScript { get; set; }
+
+        /// <summary>
         ///     Enable disable Windows Authentication (NTLM/Kerberos).
         ///     Note: NTLM/Kerberos will always send local credentials of current user
         ///     running the proxy process. This is because a man
@@ -167,14 +167,14 @@ namespace Titanium.Web.Proxy
         public bool Enable100ContinueBehaviour { get; set; }
 
         /// <summary>
-        ///     Should we enable server connection pool. Defaults to true.
+        ///     Should we enable experimental server connection pool. Defaults to false.
         ///     When you enable connection pooling, instead of creating a new TCP connection to server for each client TCP connection, 
         ///     we check if a server connection is available in our cached pool. If it is available in our pool, 
         ///     created from earlier requests to the same server, we will reuse those idle connections. 
         ///     There is also a ConnectionTimeOutSeconds parameter, which determine the eviction time for inactive server connections. 
         ///     This will help to reduce TCP connection establishment cost, both the wall clock time and CPU cycles. 
         /// </summary>
-        public bool EnableConnectionPool { get; set; } = true;
+        public bool EnableConnectionPool { get; set; } = false;
 
         /// <summary>
         ///     Should we enable tcp server connection prefetching?
@@ -295,9 +295,9 @@ namespace Titanium.Web.Proxy
         /// <summary>
         ///     Callback for error events in this proxy instance.
         /// </summary>
-        public ExceptionHandler ExceptionFunc
+        public ExceptionHandler? ExceptionFunc
         {
-            get => exceptionFunc ?? defaultExceptionFunc;
+            get => exceptionFunc;
             set
             {
                 exceptionFunc = value;
@@ -381,6 +381,11 @@ namespace Titanium.Web.Proxy
         ///     Customize TcpClient used for server connection upon create.
         /// </summary>
         public event AsyncEventHandler<Socket>? OnServerConnectionCreate;
+
+        /// <summary>
+        ///     Intercept connect request sent to upstream proxy.
+        /// </summary>
+        public event AsyncEventHandler<ConnectRequest>? BeforeUpStreamConnectRequest;
 
         /// <summary>
         /// Customize the minimum ThreadPool size (increase it on a server)
@@ -586,7 +591,11 @@ namespace Titanium.Web.Proxy
         /// <summary>
         ///     Start this proxy server instance.
         /// </summary>
-        public void Start()
+        /// <param name="changeSystemProxySettings"> 
+        ///     Whether or not clear any system proxy settings which is pointing to our own endpoint (causing a cycle).
+        ///     E.g due to ungracious proxy shutdown before.
+        /// </param>
+        public void Start(bool changeSystemProxySettings = true)
         {
             if (ProxyRunning)
             {
@@ -600,9 +609,7 @@ namespace Titanium.Web.Proxy
                 CertificateManager.EnsureRootCertificate();
             }
 
-            // clear any system proxy settings which is pointing to our own endpoint (causing a cycle)
-            // due to ungracious proxy shutdown before or something else
-            if (systemProxySettingsManager != null && RunTime.IsWindows && !RunTime.IsUwpOnWindows)
+            if (changeSystemProxySettings && systemProxySettingsManager != null && RunTime.IsWindows && !RunTime.IsUwpOnWindows)
             {
                 var proxyInfo = systemProxySettingsManager.GetProxyInfoFromRegistry();
                 if (proxyInfo?.Proxies != null)
@@ -626,9 +633,17 @@ namespace Titanium.Web.Proxy
 
             if (ForwardToUpstreamGateway && GetCustomUpStreamProxyFunc == null && systemProxySettingsManager != null)
             {
-                // Use WinHttp to handle PAC/WAPD scripts.
                 systemProxyResolver = new WinHttpWebProxyFinder();
-                systemProxyResolver.LoadFromIE();
+                if (UpstreamProxyConfigurationScript != null)
+                {
+                    //Use the provided proxy configuration script
+                    systemProxyResolver.UsePacFile(UpstreamProxyConfigurationScript);
+                }
+                else
+                {
+                    // Use WinHttp to handle PAC/WAPD scripts.
+                    systemProxyResolver.LoadFromIE();
+                }
 
                 GetCustomUpStreamProxyFunc = getSystemUpStreamProxy;
             }
@@ -845,9 +860,9 @@ namespace Titanium.Web.Proxy
         /// </summary>
         /// <param name="clientStream">The client stream.</param>
         /// <param name="exception">The exception.</param>
-        private void onException(HttpClientStream clientStream, Exception exception)
+        private void onException(HttpClientStream? clientStream, Exception exception)
         {
-            ExceptionFunc(exception);
+            ExceptionFunc?.Invoke(exception);
         }
 
         /// <summary>
@@ -874,7 +889,14 @@ namespace Titanium.Web.Proxy
                 Interlocked.Decrement(ref clientConnectionCount);
             }
 
-            ClientConnectionCountChanged?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                ClientConnectionCountChanged?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                onException(null, ex);
+            }
         }
 
         /// <summary>
@@ -892,7 +914,14 @@ namespace Titanium.Web.Proxy
                 Interlocked.Decrement(ref serverConnectionCount);
             }
 
-            ServerConnectionCountChanged?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                ServerConnectionCountChanged?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                onException(null, ex);
+            }
         }
 
         /// <summary>
@@ -944,11 +973,21 @@ namespace Titanium.Web.Proxy
 
             if (ProxyRunning)
             {
-                Stop();
+                try
+                {
+                    Stop();
+                }
+                catch
+                {
+                    // ignore
+                }
             }
 
-            CertificateManager?.Dispose();
-            BufferPool?.Dispose();
+            if (disposing)
+            {
+                CertificateManager?.Dispose();
+                BufferPool?.Dispose();
+            }
         }
 
         public void Dispose()

@@ -137,7 +137,7 @@ namespace Titanium.Web.Proxy.Helpers
         /// </summary>
         /// <param name="hostname"></param>
         /// <returns></returns>
-        internal static string GetWildCardDomainName(string hostname)
+        internal static string GetWildCardDomainName(string hostname, bool disableWildCardCertificates)
         {
             // only for subdomains we need wild card
             // example www.google.com or gstatic.google.com
@@ -148,8 +148,22 @@ namespace Titanium.Web.Proxy.Helpers
                 return hostname;
             }
 
-            if (hostname.Split(ProxyConstants.DotSplit).Length > 2)
+            if (disableWildCardCertificates)
             {
+                return hostname;
+            }
+
+            var split = hostname.Split(ProxyConstants.DotSplit);
+
+            if (split.Length > 2)
+            {
+                // issue #769
+                // do not create wildcard if second level domain like: pay.vn.ua
+                if (split[0] != "www" && split[1].Length <=3)
+                {
+                    return hostname;
+                }
+
                 int idx = hostname.IndexOf(ProxyConstants.DotSplit);
 
                 // issue #352
