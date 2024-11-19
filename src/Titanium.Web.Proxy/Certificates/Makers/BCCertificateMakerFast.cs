@@ -187,7 +187,15 @@ namespace Titanium.Web.Proxy.Network.Certificate
             }
             else
             {
+#if NET451
                 store = new Pkcs12Store();
+#else
+                store = new Pkcs12StoreBuilder()
+                    .SetKeyAlgorithm(PkcsObjectIdentifiers.PbeWithShaAnd3KeyTripleDesCbc)
+                    .SetCertAlgorithm(PkcsObjectIdentifiers.PbewithShaAnd40BitRC2Cbc)
+                    .SetUseDerEncoding(false)
+                    .Build();
+#endif
             }
 
             var entry = new X509CertificateEntry(certificate);
